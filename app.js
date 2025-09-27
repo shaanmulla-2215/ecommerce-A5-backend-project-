@@ -1,180 +1,217 @@
-// Import necessary modules
-const express = require('express');
-const mongoose = require('mongoose');
-const bcrypt = require('bcrypt');
-const rateLimit = require('express-rate-limit');
-const helmet = require('helmet')
-const jwt = require('jsonwebtoken'); 
-const nodemailer = require('nodemailer');
-require('dotenv').config();
-
-const app = express();
-const port = process.env.PORT || 3000;
+const express=require('express');
+const cors=require('cors')
+const bcrypt=require('bcrypt');
+const rateLimit=require('express-rate-limit');
+const dotenv=require('dotenv');
+const nodemailer=require('nodemailer');
+const helmet=require('helmet');
+const jwt=require('jsonwebtoken')
+dotenv.config();
 
 
+
+
+//step 1- import the package
+
+const mongoose=require('mongoose');        
+const app=express();
+const port=process.env.PORT
+//middlewares
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 100,
-});
-app.use(limiter);
+	windowMs: 15 * 60 * 1000, // 15 minutes
+	limit: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes).
+	standardHeaders: 'draft-8', // draft-6: `RateLimit-*` headers; draft-7 & draft-8: combined `RateLimit` header
+	legacyHeaders: false, // Disable the `X-RateLimit-*` headers.
+	ipv6Subnet: 56, // Set to 60 or 64 to be less aggressive, or 52 or 48 to be more aggressive
+	// store: ... , // Redis, Memcached, etc. See below.
+})
+
+// Apply the rate limiting middleware to all requests.
+app.use(limiter)
 app.use(helmet())
-app.use(express.json());
+app.use(cors());  //------->middle ware which enables cors
+app.use(express.json())
 
+//step 2-establish a connection       ------->connection string
+async function connection(){
+ await mongoose.connect(process.env.MONGODBURL)
+ 
 
-async function connectDB() {
-  try {
-    await mongoose.connect(process.env.MONGODBURL);
-    console.log("MongoDB connected");
-  } catch (err) {
-    console.error("DB connection error:", err.message);
-  }
 }
 
+//step 3-create a schema
+let porductschema=new mongoose.Schema({
+    name:{type:String,required:true},
+    price:{type:Number,required:true},
+    qty:{type:Number,required:true},
+    image:{type:String,required:true}
+})
+
+//step 4-create a model
+let productmodel=mongoose.model('products',porductschema)
+
+// let products=[{
+// user schema
+let userschema=new mongoose.Schema({
+  username:{type:String,required:true,unique:true},
+  password:{type:String,required:true},
+  email:{type:String,required:true}
+
+})    
+ let usermodel=mongoose.model('user',userschema);
 
 
-// Product schema
-const productSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  price: { type: Number, required: true },
-  qty: { type: Number, required: true },
-  image: { type: String, required: true }
-});
-const Product = mongoose.model('products', productSchema);
 
-// User schema
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  email: { type: String, required: true }
-});
-const User = mongoose.model('users', userSchema);
-
-
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,        
-    pass: process.env.GMAIL_APP_PASSWORD
-  }
-});
-
-
-async function sendEmail(toEmail, username) {
-  try {
-    const mailOptions = {
-      from: `"My App" <${process.env.GMAIL_USER}>`,
-      to: toEmail,
-      subject: 'Registration Successful',
-      text: `Hi`,
-      
-    };
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully:', info.messageId);
-  } catch (error) {
-    console.error('Error sending email:', error);
-  }
-}
-
-
-// Status check
-app.get('/', (req, res) => {
-  res.send("Server is active");
-});
+app.get('/',function(req,res){
+    res.send('server is active')
+})
 
 app.get('/userdetails',function(req,res){
   let age=req.query.age;
   let location=req.query.location;
   res.json({
-    message:`this person age is ${age} and hid/her location is ${location}`
+    message:`This person age is ${age} and his/her location is ${location}`
   })
 })
 
+//api -2 --->fetch all products
 
-app.post('/products', async (req, res) => {
+app.post('/products',async function(req,res){
+    try {
+      const {name,price,image,qty}=req.body
+      let products=await  productmodel.create({name,price,image,qty})
+      res.status(201).json({
+        message:"product added successfully"
+      })
+        
+    } catch (error) {
+      res.json({
+        message:error.message
+      })
+        
+    }
+})
+app.get('/products',async function (req,res) {
   try {
-    const { name, price, image, qty } = req.body;
-    await Product.create({ name, price, image, qty });
-    res.status(201).json({ message: "Product Added Successfully" });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
+    let products= await productmodel.find();
+    res.status(200).json({
+      products
+    })
+  }catch (error){
+    res.json({
+      message:error.message
+    })
+
+  } 
+})
+
+//api-3  ----->sore products in a database
+
+
+// api -----> delete
+app.delete('/products',async function(req,res){
+  try{
+    const {_id}=req.body;
+    let products= await productmodel.findByIdAndDelete(_id);
+    res.json({
+      message:"product is deleted successfully"
+    })
+  } catch (error){
+    res.json({
+      message:error.message
+    })
+     
   }
-});
+})
 
-// Fetch all products
-app.get('/products', async (req, res) => {
-  try {
-    const products = await Product.find();
-    res.status(200).json({ products });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
+app.put('/products',async function(req,res){
+  try{
+    const{_id,name}=req.body;
+    let products=await productmodel.findByIdAndUpdate(_id,name)
+    res.json({
+      
+      message:"product is updated"
+    })
+  } catch (error){
+    res.json({
+      message:error.message
+    })
   }
-});
+})
+ //api6----> store registration details
 
-// Delete product
-app.delete('/products', async (req, res) => {
-  try {
-    const { _id } = req.body;
-    await Product.findByIdAndDelete(_id);
-    res.json({ message: "Product Deleted Successfully" });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
+ 
+
+
+app.post('/register', async function(req,res){
+  try{
+    const {username,password,email}=req.body;
+    let user= await usermodel.findOne({username})
+    if(user) return res.json({message:"user Already exsits"})
+    let hashpassword= await bcrypt.hash(password,10);
+  let finaluser= await usermodel.create({username,password:hashpassword,email})
+
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth:{
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD
+    }
+});
+const mailOption={
+    from: process.env.GMAIL_USER,
+    to: 'chrohankumar8504@gmail.com',
+    subject: 'tes email from gmail',
+    text: 'hello this is a test email snet through gmail using nodemailer',
+    html: `
+    <h2>hi,you have successfully registered ${username}<!h2>
+    `
+};
+console.log('sending email')
+// send the mail
+transporter.sendMail(mailOption);
+  res.json({
+    message:'registration successfull'
+  })
+    
+  }catch (error){
+    res.json({
+      message:error.message
+    })
+
   }
-});
+})
+
+app.post('/login',async function(req,res){
+try{
+const{username,password}=req.body;
+let user=await usermodel.findOne({username})
+if(!user)return res.json({message:"usre not found"})
+  let authuser=bcrypt.compare(password,user.password);
+if(!authuser) return res.json({message:"invalid credentials"})
+  //token generation
+let Secret=Osman123
+let token=await jwt.sign({user:username}.Secret,{expireIn:'1hr'})
+if(!token) return res.json({
+  message:"token is required"
+})
+
+  res.json({message:"login successful"},token)
+
+}catch(error){
+res.json({
+  message:error.message
+})
+}
+
+})
 
 
-app.put('/products', async (req, res) => {
-  try {
-    const { _id, name, price, qty, image } = req.body;
-    await Product.findByIdAndUpdate(_id, { name, price, qty, image }, { new: true });
-    res.json({ message: "Product Updated Successfully" });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-});
 
 
-
-
-app.post('/register', async (req, res) => {
-  try {
-    const { username, password, email } = req.body;
-
-    const userExists = await User.findOne({ username });
-    if (userExists) return res.status(400).json({ message: "User already exists" });
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    await User.create({ username, password: hashedPassword, email });
-
-    // Send confirmation email to the email from Postman
-    await sendEmail(email, username);
-
-    res.json({ message: 'Registration Successful. Email sent!' });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-});
-
-
-app.post('/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    const user = await User.findOne({ username });
-    if (!user) return res.status(400).json({ message: "User not found" });
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
-
-    const token = jwt.sign({ user: username }, process.env.JWT_SECRET, { expiresIn: "1h" });
-
-    res.json({ message: "Login successful", token });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-});
-
-
-app.listen(port, async () => {
-  console.log(`Server running on port ${port}`);
-  await connectDB();
-});
+app.listen(port,async function(){
+    console.log(`the server is running on ${port}`)
+    await connection();
+    console.log('DB IS CONNECTED')
+  
+})
